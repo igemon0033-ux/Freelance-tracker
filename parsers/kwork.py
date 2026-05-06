@@ -2,56 +2,116 @@ import requests
 import re
 import asyncio
 import json
+import logging
 from parsers.send_project import send_project
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 SITE_NAME = "kwork"
 SITE_URL = "https://kwork.ru/projects"
-CATEGORIES = {
-    1: ""
-}
 
-with open("cats.json", "r", encoding="utf 8") as f:
+# Наши ключевые слова для фильтрации (в нижнем регистре)
+KEYWORDS = [
+    "python", "телеграм", "бот", "парсер", "автоматизация", 
+    "авито", "excel", "таблицы", "скрипт", "ai", "ии", 
+    "чат-бот", "парсинг", "выгрузка", "автоответчик"
+]
+
+MIN_BUDGET = 500  # Минимальный бюджет для уведомления
+PRIORITY_BUDGET = 3000  # Бюджет, который мы считаем приоритетным (жирным)
+
+with open("cats.json", "r", encoding="utf-8") as f:
     cats = json.load(f)
 
+def contains_keywords(text):
+    if not text:
+        return False
+    text_lower = text.lower()
+    return any(kw in text_lower for kw in KEYWORDS)
 
 async def main():
     ignore_ids = []
     first_run = True
+    logging.info("Мониторинг Kwork запущен...")
 
     while True:
         try:
-            request = requests.get(SITE_URL, timeout=15)
-            data = re.search(r"window\.stateData=(.*?)};", request.text).group(1) + "}"
-            data = json.loads(data)
-            wants_list = data["wantsListData"]["wants"]
+            # Используем сессию для эффективности
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            response = requests.get(SITE_URL, headers=headers, timeout=15)
+            
+            if response.status_code != 200:
+                logging.error(f"Ошибка доступа к сайту: {response.status_code}")
+                await asyncio.sleep(10)
+                continue
+
+            # Извлекаем данные из window.stateData
+            match = re.search(r"window\.stateData=(.*?)};", response.text)
+            if not match:
+                logging.error("Не удалось найти stateData на странице")
+                await asyncio.sleep(10)
+                continue
+
+            data_str = match.group(1) + "}"
+            data = json.loads(data_str)
+            wants_list = data.get("wantsListData", {}).get("wants", [])
+
             for want in wants_list:
                 id_ = want["id"]
-                # print(id_)
-                name = want["name"]
-                description = want["description"]
-                number_of_responses = want["kwork_count"]
-                category_id = want["category_id"]
-                category = cats[category_id]
-                price_limit = round(float(want["priceLimit"]))
+                name = want.get("name", "")
+                description = want.get("description", "")
+                number_of_responses = want.get("kwork_count", 0)
+                category_id = str(want.get("category_id", ""))
+                category = cats.get(category_id, "Без категории")
+                price_limit = round(float(want.get("priceLimit", 0)))
 
-                if first_run:
-                    ignore_ids.append(id_)
+                # Пропускаем уже виденные проекты
                 if id_ in ignore_ids:
                     continue
-
+                
                 ignore_ids.append(id_)
-                await send_project(category, SITE_NAME, price_limit, number_of_responses, description,
-                                   f"https://kwork.ru/projects/{id_}")
-        except:
-            print("ex!")
+                
+                # На первом прогоне просто заполняем список игнорирования
+                if first_run:
+                    continue
+
+                # ФИЛЬТРАЦИЯ
+                is_relevant = contains_keywords(name) or contains_keywords(description)
+                is_good_budget = price_limit >= MIN_BUDGET
+                
+                # Если проект интересен по ключевым словам ИЛИ имеет высокий бюджет
+                if (is_relevant and is_good_budget) or price_limit >= PRIORITY_BUDGET:
+                    logging.info(f"Найдено совпадение! {name} ({price_limit} руб.)")
+                    
+                    # Добавляем пометку в описание, если бюджет высокий
+                    final_description = description
+                    if price_limit >= PRIORITY_BUDGET:
+                        final_description = "🔥 ВЫСОКИЙ БЮДЖЕТ! 🔥\n\n" + description
+
+                    await send_project(
+                        category, 
+                        SITE_NAME, 
+                        price_limit, 
+                        number_of_responses, 
+                        final_description,
+                        f"https://kwork.ru/projects/{id_}"
+                    )
+            
+            # Ограничиваем размер списка игнорирования, чтобы не росла память
+            if len(ignore_ids) > 1000:
+                ignore_ids = ignore_ids[-500:]
+
+        except Exception as e:
+            logging.error(f"Критическая ошибка в цикле парсинга: {e}")
 
         first_run = False
-        await asyncio.sleep(5)
-
+        await asyncio.sleep(10)  # Спим 10 секунд, чтобы не забанили IP
 
 def run():
     asyncio.run(main())
-
 
 if __name__ == "__main__":
     run()
