@@ -31,9 +31,16 @@ def contains_keywords(text):
     return any(kw in text_lower for kw in KEYWORDS)
 
 async def main():
+    # Загружаем уже виденные ID из файла, чтобы не дублировать после перезагрузки
     ignore_ids = []
+    try:
+        with open("seen_ids.txt", "r") as f:
+            ignore_ids = [line.strip() for line in f.readlines()]
+    except FileNotFoundError:
+        pass
+
     first_run = True
-    logging.info("Мониторинг Kwork запущен...")
+    logging.info(f"Мониторинг Kwork запущен. В базе уже {len(ignore_ids)} просмотренных проектов.")
 
     while True:
         try:
@@ -60,7 +67,7 @@ async def main():
             wants_list = data.get("wantsListData", {}).get("wants", [])
 
             for want in wants_list:
-                id_ = want["id"]
+                id_ = str(want["id"])
                 name = want.get("name", "")
                 description = want.get("description", "")
                 number_of_responses = want.get("kwork_count", 0)
@@ -73,11 +80,10 @@ async def main():
                     continue
                 
                 ignore_ids.append(id_)
+                # Сразу записываем в файл, чтобы не потерять при падении
+                with open("seen_ids.txt", "a") as f:
+                    f.write(f"{id_}\n")
                 
-                # На первом прогоне просто заполняем список игнорирования
-                if first_run:
-                    continue
-
                 # ФИЛЬТРАЦИЯ
                 is_relevant = contains_keywords(name) or contains_keywords(description)
                 is_good_budget = price_limit >= MIN_BUDGET
@@ -91,7 +97,7 @@ async def main():
                     if price_limit >= PRIORITY_BUDGET:
                         final_description = "🔥 ВЫСОКИЙ БЮДЖЕТ! 🔥\n\n" + description
 
-                    await send_project(
+                    send_project(
                         category, 
                         SITE_NAME, 
                         price_limit, 
@@ -100,9 +106,11 @@ async def main():
                         f"https://kwork.ru/projects/{id_}"
                     )
             
-            # Ограничиваем размер списка игнорирования, чтобы не росла память
-            if len(ignore_ids) > 1000:
-                ignore_ids = ignore_ids[-500:]
+            # Ограничиваем размер файла (храним последние 2000 ID)
+            if len(ignore_ids) > 2000:
+                ignore_ids = ignore_ids[-1000:]
+                with open("seen_ids.txt", "w") as f:
+                    f.write("\n".join(ignore_ids) + "\n")
 
         except Exception as e:
             logging.error(f"Критическая ошибка в цикле парсинга: {e}")
