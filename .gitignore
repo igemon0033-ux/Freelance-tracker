@@ -1,0 +1,19 @@
+# Environments
+venv/
+.venv/
+env/
+
+# Config & Secrets
+settings.json
+
+# Local databases and runtime files
+users.db
+seen_ids.txt
+bot.log
+.DS_Store
+test_urls.txt
+
+# Local temporary folders
+Parser_ARL_BL/
+freelance_orders/
+portfolio/

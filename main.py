@@ -14,6 +14,8 @@ from utils.callback import rubrics_buttons
 # from utils.callback import prerubric_choose
 from utils.callback import rubric_choose
 from utils.callback import choose_kwork_budget_callback, choose_kwork_budget_button
+from utils.callback import ai_draft_handler
+
 from globals import dp, channels, texts, bot, main_keyboard, categories
 from utils.get_dict_keys import get_keys
 from threading import Thread

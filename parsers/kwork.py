@@ -3,6 +3,7 @@ import re
 import asyncio
 import json
 import logging
+import random
 from parsers.send_project import send_project
 
 # Настройка логирования
@@ -15,20 +16,27 @@ SITE_URL = "https://kwork.ru/projects"
 KEYWORDS = [
     "python", "телеграм", "бот", "парсер", "автоматизация", 
     "авито", "excel", "таблицы", "скрипт", "ai", "ии", 
-    "чат-бот", "парсинг", "выгрузка", "автоответчик"
+    "чат-бот", "парсинг", "выгрузка", "автоответчик",
+    "selenium", "playwright", "scraping", "wildberries", 
+    "ozon", "яндекс маркет", "сбермегамаркет", "cloudfare",
+    "антидетект", "скрейпинг"
 ]
 
-MIN_BUDGET = 500  # Минимальный бюджет для уведомления
-PRIORITY_BUDGET = 3000  # Бюджет, который мы считаем приоритетным (жирным)
+# Ключевые слова для приоритетных ниш (наш опыт)
+PRIORITY_KEYWORDS = ["arlight", "blesslight", "светотехника", "светильники", "освещение", "люстры"]
 
-with open("cats.json", "r", encoding="utf-8") as f:
-    cats = json.load(f)
+MIN_BUDGET = 0  # Теперь шлем вообще всё, как ты и просил
+PRIORITY_BUDGET = 3000  # Пометка "Высокий бюджет" остается для ориентира
 
-def contains_keywords(text):
+def contains_keywords(text, keywords_list=KEYWORDS):
     if not text:
         return False
     text_lower = text.lower()
-    return any(kw in text_lower for kw in KEYWORDS)
+    return any(kw in text_lower for kw in keywords_list)
+
+
+with open("cats.json", "r", encoding="utf-8") as f:
+    cats = json.load(f)
 
 async def main():
     # Загружаем уже виденные ID из файла, чтобы не дублировать после перезагрузки
@@ -44,7 +52,6 @@ async def main():
 
     while True:
         try:
-            # Используем сессию для эффективности
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
@@ -52,14 +59,13 @@ async def main():
             
             if response.status_code != 200:
                 logging.error(f"Ошибка доступа к сайту: {response.status_code}")
-                await asyncio.sleep(10)
+                await asyncio.sleep(random.randint(60, 120))
                 continue
 
-            # Извлекаем данные из window.stateData
             match = re.search(r"window\.stateData=(.*?)};", response.text)
             if not match:
                 logging.error("Не удалось найти stateData на странице")
-                await asyncio.sleep(10)
+                await asyncio.sleep(random.randint(60, 120))
                 continue
 
             data_str = match.group(1) + "}"
@@ -75,7 +81,6 @@ async def main():
                 category = cats.get(category_id, "Без категории")
                 price_limit = round(float(want.get("priceLimit", 0)))
 
-                # Пропускаем уже виденные проекты
                 if id_ in ignore_ids:
                     continue
                 
@@ -86,15 +91,16 @@ async def main():
                 
                 # ФИЛЬТРАЦИЯ
                 is_relevant = contains_keywords(name) or contains_keywords(description)
+                is_priority_niche = contains_keywords(name, PRIORITY_KEYWORDS) or contains_keywords(description, PRIORITY_KEYWORDS)
                 is_good_budget = price_limit >= MIN_BUDGET
                 
-                # Если проект интересен по ключевым словам ИЛИ имеет высокий бюджет
-                if (is_relevant and is_good_budget) or price_limit >= PRIORITY_BUDGET:
+                if (is_relevant and is_good_budget) or price_limit >= PRIORITY_BUDGET or is_priority_niche:
                     logging.info(f"Найдено совпадение! {name} ({price_limit} руб.)")
                     
-                    # Добавляем пометку в описание, если бюджет высокий
                     final_description = description
-                    if price_limit >= PRIORITY_BUDGET:
+                    if is_priority_niche:
+                        final_description = "🌟 ИДЕАЛЬНОЕ СОВПАДЕНИЕ (НИША) 🌟\n\n" + description
+                    elif price_limit >= PRIORITY_BUDGET:
                         final_description = "🔥 ВЫСОКИЙ БЮДЖЕТ! 🔥\n\n" + description
 
                     send_project(
@@ -103,8 +109,12 @@ async def main():
                         price_limit, 
                         number_of_responses, 
                         final_description,
-                        f"https://kwork.ru/projects/{id_}"
+                        f"https://kwork.ru/projects/{id_}",
+                        id_,
+                        name
                     )
+
+
             
             # Ограничиваем размер файла (храним последние 2000 ID)
             if len(ignore_ids) > 2000:
@@ -116,7 +126,8 @@ async def main():
             logging.error(f"Критическая ошибка в цикле парсинга: {e}")
 
         first_run = False
-        await asyncio.sleep(10)  # Спим 10 секунд, чтобы не забанили IP
+        # Увеличиваем интервал до безопасного (1.5 - 3 минуты), чтобы имитировать человека и избежать капчи
+        await asyncio.sleep(random.randint(90, 180))
 
 def run():
     asyncio.run(main())
