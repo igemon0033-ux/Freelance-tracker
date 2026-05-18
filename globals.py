@@ -20,5 +20,4 @@ PROXY_URL = "http://W5wUKarZ:9FzWg75k@142.111.3.115:63360"
 bot = Bot(settings["token"], proxy=PROXY_URL, parse_mode="HTML") 
 dp = Dispatcher(bot, storage=storage)
 
-main_keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-main_keyboard.add('⚙️Настройки', 'ℹ️ Информация')
+main_keyboard = types.ReplyKeyboardRemove()
